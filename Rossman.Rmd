@@ -1,0 +1,179 @@
+---
+title: "Rossman"
+author: "Sudhan"
+date: "11 january 2016"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(neuralnet)
+library(randomForest)
+library(rpart)
+library(e1071)
+library(caret)
+```
+
+
+#Read data about Sales
+
+```{r}
+train <- read.table("E:/R Studio/CIBA/train.csv",header=T,sep=",")
+test <- read.table("E:/R Studio/CIBA/test.csv",header=T,sep=",")
+store <- read.table("E:/R Studio/CIBA/store.csv",header=T,sep=",")
+
+new.train <- train
+new.train$Promo <- as.factor(new.train$Promo)
+new.train$Open <- as.factor(new.train$Open)
+new.train$DayOfWeek <- as.factor(new.train$DayOfWeek)
+new.train$SchoolHoliday <- as.factor(new.train$SchoolHoliday)
+
+
+new.train <- merge(new.train,store)
+test <- merge(test,store)
+
+new.train$Month <- as.factor(format(as.Date(new.train$Date),"%m"))
+new.train$Day <- as.factor(format(as.Date(new.train$Date),"%d"))
+new.train$Year <- as.factor(format(as.Date(new.train$Date),"%Y"))
+```
+
+
+#Data Exploration 
+
+```{r}
+sales.by.day.df <- aggregate(new.train$Sales,by = list(new.train$DayOfWeek),mean)
+names(sales.by.day.df) <- c("DayOfWeek","Average.Sales")
+ggplot(data=sales.by.day.df,aes(x=DayOfWeek,y=Average.Sales,fill=DayOfWeek)) +
+  geom_bar(stat="identity") + ggtitle("Average sales by day of the week")
+```
+
+
+```{r}
+sales.by.stateH.df <- aggregate(new.train$Sales,by = list(new.train$StateHoliday),function(x){mean(as.numeric(x))})
+sales.by.stateH.df <- sales.by.stateH.df[-1,]
+names(sales.by.stateH.df) <- c("StateHoliday","Average.Sales")
+ggplot(data=sales.by.stateH.df,aes(x=StateHoliday,y=Average.Sales,fill=c("blue","red","green"))) + 
+  geom_bar(stat="identity") + ggtitle("Average sales by state holiday")
+
+sales.by.schoolH.df <- aggregate(new.train$Sales,by = list(new.train$SchoolHoliday),function(x){mean(as.numeric(x))})
+names(sales.by.schoolH.df) <- c("SchoolHoliday","Average.Sales")
+ggplot(data=sales.by.schoolH.df,aes(x=SchoolHoliday,y=Average.Sales,fill=SchoolHoliday)) + geom_bar(stat="identity") +
+  ggtitle("Average sales by school holiday")
+
+sales.by.storeType.df <- aggregate(new.train$Sales,by = list(new.train$StoreType),function(x){mean(as.numeric(x))})
+names(sales.by.storeType.df) <- c("Store.Type","Average.Sales")
+ggplot(data=sales.by.storeType.df,aes(x=Store.Type,y=Average.Sales,fill=Store.Type)) + geom_bar(stat="identity") +
+  ggtitle("Average Sales by store type")
+
+sales.by.month.df <- aggregate(new.train$Sales,by = list(new.train$Month),mean)
+names(sales.by.month.df) <- c("Month","Average.Sales")
+ggplot(data=sales.by.month.df,aes(x=Month,y=Average.Sales,fill=Month)) + geom_bar(stat="identity") + 
+  ggtitle("Average Sales by Month")
+
+sales.by.date.df <- aggregate(new.train$Sales,by = list(new.train$Day),mean)
+names(sales.by.date.df) <- c("Date","Average.Sales")
+ggplot(data=sales.by.date.df,aes(x=Date,y=Average.Sales,fill=Date)) + geom_bar(stat="identity") + 
+  ggtitle("Average sales by Date")
+
+sales.by.year.df <- aggregate(new.train$Sales,by = list(new.train$Year),mean)
+names(sales.by.year.df) <- c("Year","Average.Sales")
+ggplot(data=sales.by.year.df,aes(x=Year,y=Average.Sales,fill=Year)) + geom_bar(stat="identity") + 
+  ggtitle("Average sales by Year")
+
+sales.by.storeP.df <- aggregate(new.train$Sales,by = list(new.train$Store,new.train$Promo),mean)
+names(sales.by.storeP.df) <- c("Store","isPromo","Average.Sales")
+ggplot(data=sales.by.storeP.df,aes(Store,Average.Sales,color=isPromo)) + geom_point() +
+  ggtitle("Average Sales of each store by promo")
+
+sales.by.MonthP.df <- aggregate(new.train$Sales,by = list(new.train$Month,new.train$Promo),mean)
+names(sales.by.MonthP.df) <- c("Month","isPromo","Average.Sales")
+ggplot(data=sales.by.MonthP.df,aes(x=Month,y=Average.Sales,fill=isPromo)) +
+  geom_bar(stat="identity",position = "dodge") + ggtitle("Average sales by Promo in each Month")
+
+```
+
+What we recognize from this plot that for people even if there were no promotion at the end of the year they purchace a lot and that is due to a special event at the end of the year
+
+#Modeling
+1. artificial neural network2. random forest3.decision tree 4.support vector machine
+```{r}
+dataset=merge(store,train,by="Store")
+dataset$Date=NULL
+dataset$Date2=NULL
+dataset$PromoInterval=NULL
+#due to the huge size of data set and R reduced capabilities to compute in limited size of the RAM , models will be buit using 0.01 of the total size of the training dataset
+train=dataset[sample(nrow(dataset),nrow(dataset)*0.04), ]
+train=na.omit(train)
+train$StoreType=as.numeric(as.factor(train$StoreType))
+train$Assortment=as.numeric(as.factor(train$Assortment))
+train$StateHoliday=as.numeric(as.factor(train$StateHoliday))
+train$DayOfWeek=as.numeric(train$DayOfWeek)
+train$Promo=as.numeric(train$Promo)
+
+vald=dataset[sample(nrow(dataset),nrow(dataset)*0.01), ]
+vald=na.omit(vald)
+vald$StoreType=as.numeric(as.factor(vald$StoreType))
+vald$Assortment=as.numeric(as.factor(vald$Assortment))
+vald$StateHoliday=as.numeric(as.factor(vald$StateHoliday))
+vald$DayOfWeek=as.numeric(vald$DayOfWeek)
+vald$Promo=as.numeric(vald$Promo)
+
+
+# Evaluation function
+RMSPE <- function(y,y_hat) {
+  n <- length(y)
+  s <- 0
+  for (idx in 1:n) {
+    if (y[idx] != 0) {
+      s <- s+((y[idx]-y_hat[idx])/y[idx])^2}
+    }
+  
+  return(sqrt(1/n*s))
+}
+
+
+```
+##1. Neural Network 
+```{r}
+n <- names(train)[-c(11,7)]
+f <- as.formula(paste("Sales ~", paste(n[!n %in% "medv"], collapse = " + ")))
+nn <- neuralnet(f,data=train,linear.output=T)
+r=compute(nn,vald[,-c(11,7)])
+#predictions
+#r$net.result
+#conf_nn <- confusionMatrix(r$net.result,vald$Sales)
+print(RMSPE(vald$Sales,r$net.result))
+```
+
+##2. Random forest 
+
+```{r}
+rf<- randomForest(Sales ~ ., data=train, na.action = na.omit)
+varImpPlot(rf)
+#checkin the random into the training data set
+pred<- predict(rf,newdata = vald)
+print(RMSPE(vald$Sales,pred))
+```
+
+##3. Decision Tree
+
+```{r}
+dt <- rpart(formula = "Sales~.",data=train)
+plot(dt)
+text(dt, cex=0.8)
+pred_dt<-predict(dt,vald)
+print(RMSPE(vald$Sales,pred_dt))
+
+```
+
+# 4.SVM
+library(e1071)
+
+```{r}
+svm <- svm(f,type="nu-regression",na.action=na.omit,train)
+#prediction
+pred_svm<-predict(svm,vald[,-c(7,11)])
+print(RMSPE(vald$Sales,pred_svm))
+```
+
